@@ -3,8 +3,8 @@ var request = require('request');
 var moment = require("moment");
 var crypto = require('crypto');
 
-var apiToken = 'some token';
-var apiSecret = 'some secret';
+var apiToken = process.env.API_TOKEN;
+var apiSecret = process.env.API_SECRET;
 var portal = "icappirio.csod.com";
 var userName = "jdouglas";
 
@@ -24,15 +24,8 @@ var generateSession = function(userName, sessionName, callback) {
   };
 
   request(options, function(error, response, body) {
-
-    console.log(response.statusCode); // returning 401
-    console.log(error); // return null
-    console.log(body); // message: CSOD Unauthorized Exception:Check your credentials.
-
-      var session = JSON.parse(body);
-
+    var session = JSON.parse(body);
     callback(session.data[0]);
-
   });
 }
 
@@ -42,7 +35,6 @@ var getApiSignature = function(url, apiToken, apiSecret, httpVerb, utc) {
 }
 
 var getSignature = function(secretString, stringToSign) {
-    //return crypto.createHmac('sha512', secretString).update(stringToSign).digest('base64');
     return crypto.createHmac('sha512', new Buffer(secretString, 'base64')).update(new Buffer(stringToSign)).digest('base64');
 }
 
@@ -54,12 +46,26 @@ var getSessionSignature = function(url, sessionToken, sessionSecret, httpVerb, u
 var getData = function(session, entity, query, isDW) {
 
   var verb = "GET";
-  var entityUrl = "/services/dwdata/"+entity;
+  var entityUrl = (isDW == true)?"/services/dwdata/" : "/services/data/";
+
+  //need to URL encode spaces in odata query
+  var path = entityUrl;
+  if(query != null) {
+    var find = new RegExp(" ", "g");
+    var encodedQuery = query.replace(find, "%20");
+    entityUrl += entity;
+    var path = (query != null) ? entityUrl + "?" + encodedQuery : entityUrl;
+  }
+
   var utc = moment.utc().format();
   var signature = getSessionSignature(entityUrl, session.Token, session.Secret, verb, utc);
 
   var options = {
       url: "https://"+portal + entityUrl,
+      host: portal,
+      port: 443,
+      path: path,
+      method: verb,
       headers: {
           'x-csod-date': utc,
           'x-csod-session-token': session.Token,
@@ -67,9 +73,17 @@ var getData = function(session, entity, query, isDW) {
       }
   };
 
-  console.log(options);
+  request(options, function(error, response, body) {
+    if (error) {
+      console.log(response.statusCode);
+      console.log(error);
+    }
+    var data = JSON.parse(body);
+    console.log('Here is the first record returned from CSOD:');
+    console.log(data.value[0]);
+  });
 
-  return "some data";
+  return "TODO -- Return actual data";
 
 }
 
@@ -81,7 +95,7 @@ var requestListener = function (req, res) {
   generateSession(userName, sessionName, function(session){
     var results = getData(session, "Transcript", "$select=UserID,TranscriptStatus,TranscriptRegistrationDate", true);
       res.writeHead(200);
-      //res.write(results);
+      console.log(results);
       res.end("done");
   });
 
